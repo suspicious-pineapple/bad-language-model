@@ -1,5 +1,8 @@
 
 
+import {
+Worker, isMainThread,parentPort,workerData
+} from "node:worker_threads";
 
 let vocabulary = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890+-*/,.! ".split("")
 
@@ -94,15 +97,15 @@ testnet.deserialize(testnet.serialize());
 
 let currentBest = testnet;
 let trainIdx = Array.from({length:1024},()=>Math.floor(Math.random()*currentBest.serialize().length));
-let currentBestScore = evaluateAutoencoder(testnet);
+let currentBestScore = evaluateAutoencoder(testnet.serialize());
 console.log(currentBestScore);
 let iteration = 0;
 let lastWasGood = false;
 //let weightDiff = new Float16Array(currentBest.serialize().length);
 let weightDiff = new Float16Array(trainIdx.length);
+/*
 while(true){
     iteration++;
-
     let wlr = (Math.sin(iteration*0.005)+0.5)*0.05;
     if(iteration%512==0){
         trainIdx = Array.from({length:Math.ceil(Math.random()*512)},()=>Math.floor(Math.random()*currentBest.serialize().length));
@@ -128,11 +131,6 @@ while(true){
     for(let i = 0; i < trainIdx.length;i++){
         newWeights[trainIdx[i]]+=weightDiff[i]*0.1
     }
-    
-    
-    
-    
-
     candidate.deserialize(newWeights);
     
     let newScore = evaluateAutoencoder(candidate);
@@ -156,11 +154,56 @@ while(true){
         lastWasGood=false;
     }
 }
+*/
+class Optimizer {
+    constructor(evaluate,size){
+        this.hparams = {
+
+        };
+        this.dtype = Array;
+        this.currentBest = new Array(size);
+        console.log(size);
+        this.currentBest.fill(0.1);
+        //this.currentBestScore = evaluate(this.currentBest);
+       this.currentBestScore = 9999;
+        
+        this.evaluate = evaluate;
+        this.iteration = 0;    
+    }
+    step(){
+        this.iteration++;
+        //let candidate = JSON.parse(JSON.stringify(this.currentBest));
+        //let candidate = JSON.parse(JSON.stringify(this.currentBest));
+        let candidate = [...this.currentBest];
+        
+         
+        for(let i = 0; i < 200;i++){
+            
+            let index = Math.floor(Math.random()*candidate.length);
+            candidate[index]+= (Math.random()*2-1)*0.05;
+        }
+
+        let newScore = this.evaluate(candidate);
+        if(newScore<this.currentBestScore){
+            
+            console.log("new best: ",newScore);
+            this.currentBest=candidate;
+            this.currentBestScore=newScore;
+        }
+    }
+
+    train(n){
+        for(let i = 0; i < n ; i++){
+            this.step();
+        }
+    }
+
+}
 
 
-
-
-function evaluateAutoencoder(net){
+function evaluateAutoencoder(weights){
+    let net = new NeuralNetwork(testnet.shape);
+    net.deserialize([...weights]);
     let totalLoss = 0;
     let randomSequence = new Float16Array(96);
     for(let i=0;i<96;i++){
@@ -217,7 +260,9 @@ function tokenize(text,returnVec=false){
 }
 
 
+let optim = new Optimizer(evaluateAutoencoder,testnet.serialize().length);
 
+optim.train(10000);
 
 
 
