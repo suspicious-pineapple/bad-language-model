@@ -16,7 +16,6 @@ class NeuralNetwork {
             this.weights[i] = []; //todo: fuse?
             for(let j = 0; j < this.shape[i];j++){
                 this.weights[i][j] = new this.dtype(shape[i-1]);
-                
             }
             this.biases[i] = new this.dtype(shape[i]);
             this.values[i] = new this.dtype(shape[i]);
@@ -87,7 +86,7 @@ class NeuralNetwork {
 
 let testnet = new NeuralNetwork([70,24,2,8,70]);
 //console.log(JSON.stringify(testnet));
-testnet.randomize(1,0.1);
+//testnet.randomize(1,0.1);
 testnet.deserialize(testnet.serialize());
 
 
