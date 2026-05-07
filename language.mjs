@@ -1,5 +1,6 @@
 
 
+import { resolve } from "node:dns";
 import {
 Worker, isMainThread,parentPort,workerData
 } from "node:worker_threads";
@@ -15,6 +16,7 @@ class NeuralNetwork {
         this.biases = [];
         this.values = [];
         this.dtype = Float16Array;
+        this.values[0] = new this.dtype(shape[0]);
         for(let i = 1; i < shape.length;i++){
             this.weights[i] = []; //todo: fuse?
             for(let j = 0; j < this.shape[i];j++){
@@ -23,6 +25,7 @@ class NeuralNetwork {
             this.biases[i] = new this.dtype(shape[i]);
             this.values[i] = new this.dtype(shape[i]);
         }
+
     }
     forward(inputs){
 
@@ -32,10 +35,9 @@ class NeuralNetwork {
             for(let j = 0; j < this.weights[i].length;j++){
                 for(let k = 0; k < this.weights[i][j].length;k++){
                     this.values[i][j] += this.weights[i][j][k]*this.values[i-1][k];
-                    //console.log(i,j,k,this.weights[i][j][k],this.values[i-1][k])
                 }
             }
-            //this.values[i]=this.values[i].map(v=>Math.max(v*0.05,v));
+            
             this.values[i]=this.values[i].map(v=>Math.max(v,v*0.06));
 
             //let min = Math.min(...this.values[i]);
@@ -45,6 +47,31 @@ class NeuralNetwork {
         }
         return this.values[this.shape.length-1];
     }
+    
+    runAll(input){
+        let current = input;
+        for(let i = 1; i < this.shape.length;i++){
+            current = this.runLayer(i,current);
+        }
+        return current;
+    }
+
+    runLayer(i,input){
+        
+        //this.values[i].set(input);
+        let output = new Float16Array(this.shape[i]);
+        output.set(this.biases[i]);
+            for(let j = 0; j < this.weights[i].length;j++){
+                for(let k = 0; k < this.weights[i][j].length;k++){
+                    output[j] += this.weights[i][j][k]*input[k];
+                }
+            }
+            output=output.map(v=>Math.max(v,v*0.06));
+
+            return output;
+
+    }
+
 
     
 
@@ -87,9 +114,11 @@ class NeuralNetwork {
 }
 
 
-let testnet = new NeuralNetwork([70,24,2,8,70]);
+let testnet = new NeuralNetwork([vocabulary.length,24,2,8,vocabulary.length]);
 //console.log(JSON.stringify(testnet));
-//testnet.randomize(1,0.1);
+
+
+
 testnet.deserialize(testnet.serialize());
 
 
@@ -103,63 +132,12 @@ let iteration = 0;
 let lastWasGood = false;
 //let weightDiff = new Float16Array(currentBest.serialize().length);
 let weightDiff = new Float16Array(trainIdx.length);
-/*
-while(true){
-    iteration++;
-    let wlr = (Math.sin(iteration*0.005)+0.5)*0.05;
-    if(iteration%512==0){
-        trainIdx = Array.from({length:Math.ceil(Math.random()*512)},()=>Math.floor(Math.random()*currentBest.serialize().length));
-    }
-    if(iteration%1000==0){
-        console.log("iteration ",iteration);
-        //console.log("wlr ",wlr);
 
-    }
-    let blr = wlr;
-    let candidate = new NeuralNetwork([70,24,2,8,70]);
-    let newWeights = currentBest.serialize();
-    weightDiff = new Float16Array(trainIdx.length);
-
-    if(!lastWasGood){
-        for(let i = 0; i < trainIdx.length;i++){
-            //weightDiff.fill(0);
-            weightDiff[i]=(Math.random()*2-1)*wlr
-        }
-        
-    }
-    //newWeights = newWeights.map((v,i)=>newWeights[i]+(weightDiff[i]*0.0001));
-    for(let i = 0; i < trainIdx.length;i++){
-        newWeights[trainIdx[i]]+=weightDiff[i]*0.1
-    }
-    candidate.deserialize(newWeights);
-    
-    let newScore = evaluateAutoencoder(candidate);
-        if(newScore<currentBestScore){
-            if(lastWasGood){
-                console.log("reused change!");
-            }
-        lastWasGood=true;
-        currentBest=candidate;
-        currentBestScore=newScore;
-        console.log("new best:",newScore);
-        let evalArr = new Float16Array(candidate.shape[0]);
-        evalArr[2]=1;
-        //console.log(candidate.forward(evalArr));
-        console.log(tokenize("the quick brown frog jumps over the lazy fox"));
-        if(tokenize("is it good now")=="is it good now"){
-            console.log(tokenize("abcdefghijklmnopqrstuvwxyz"));
-
-        }
-    } else {
-        lastWasGood=false;
-    }
-}
-*/
 class Optimizer {
-    constructor(evaluate,size){
+    constructor(evaluate,size,improvementCallback=()=>{}){
         this.hparams = {
-
         };
+        this.improvementCallback = improvementCallback;
         this.dtype = Array;
         this.currentBest = new Array(size);
         console.log(size);
@@ -177,22 +155,30 @@ class Optimizer {
         let candidate = [...this.currentBest];
         
          
-        for(let i = 0; i < 200;i++){
+        for(let i = 0; i < this.iteration%400+500;i++){
             
             let index = Math.floor(Math.random()*candidate.length);
-            candidate[index]+= (Math.random()*2-1)*0.05;
+            candidate[index]+= (Math.random()*2-1)*Math.cos(this.iteration*0.001)*0.8;
         }
 
-        let newScore = this.evaluate(candidate);
+        let newScore = this.evaluate(candidate,false);
         if(newScore<this.currentBestScore){
-            
-            console.log("new best: ",newScore);
+            this.improvementCallback(candidate,newScore);
+            //console.log("new best: ",newScore);
             this.currentBest=candidate;
             this.currentBestScore=newScore;
+            //this.evaluate([...candidate],true);
+
         }
+
     }
 
     train(n){
+        if(n==0){
+            while(true){
+                this.step();
+            }
+        }
         for(let i = 0; i < n ; i++){
             this.step();
         }
@@ -201,7 +187,7 @@ class Optimizer {
 }
 
 
-function evaluateAutoencoder(weights){
+function evaluateAutoencoder(weights,celebrate=false){
     let net = new NeuralNetwork(testnet.shape);
     net.deserialize([...weights]);
     let totalLoss = 0;
@@ -218,6 +204,9 @@ function evaluateAutoencoder(weights){
         totalLoss+=sequenceLoss(res,randomSequence)*0.5;
         //totalLoss+=sequenceLoss(net.forward(randomSequence),randomSequence);
         
+    }
+    if(celebrate){
+        console.log(decodeText(encodeText("yay new best!",net),net));
     }
     return totalLoss;
 }
@@ -239,7 +228,7 @@ function tokenize(text,returnVec=false){
     let decodedStr = "";
     for(let i = 0; i < parts.length;i++){
         let tokenID = vocabulary.indexOf(parts[i]);
-        let vec = new Float16Array(70);
+        let vec = new Float16Array(vocabulary.length);
         vec[tokenID]=1;
         //let encoded = currentBest.forward(vec,0,1);
         let decoded = currentBest.forward(vec,1,2);
@@ -251,23 +240,107 @@ function tokenize(text,returnVec=false){
         let maxIndex = decoded.indexOf(max);
         decodedStr+=vocabulary[maxIndex];
 
-
-
-
-
     }
     return decodedStr;
 }
 
+function encodeText(text,net){
+    let parts = text.split("");
+    let output = [];
+    for(let i = 0; i < text.length;i++){
+        let tokenID = vocabulary.indexOf(parts[i]);
+        let vec = new Float16Array(vocabulary.length);
+        vec[tokenID]=1;
+        let encoded = net.runLayer(2,net.runLayer(1,vec));
+        output.push(encoded);        
+    }
+    return output;
+}
+function decodeText(arr,net){
+    let text = [];
+    for(let i = 0; i < arr.length;i++){
+        let res = net.runLayer(4,net.runLayer(3,arr[i]));
+        let tokenID = res.indexOf(Math.max(...res));
+        text.push(vocabulary[tokenID]);
+    }
+    return text.join("");
+}
 
-let optim = new Optimizer(evaluateAutoencoder,testnet.serialize().length);
 
-optim.train(10000);
+//let optim = new Optimizer(evaluateAutoencoder,testnet.serialize().length);
 
-
-
+//optim.train(100000);
 
 
+
+class ThreadedOptimizer {
+    constructor(evaluate,size,numThreads=8){
+
+        this.numThreads = numThreads;
+        this.evaluate = evaluate;
+        this.size = size;
+        this.globalBest = new Array(size);
+        this.globalBestScore = 999999999999999; 
+        this.workers = [];
+        for(let i = 0; i < numThreads;i++){
+            let newWorker = new Worker("./language.mjs");
+            //et newerWorker = new Worker("./language.mjs");
+            let opt = this;
+            newWorker.on("message",(msg)=>{
+                let data = JSON.parse(msg);
+                if(data.score < opt.globalBestScore){
+                    opt.globalBest = data.weights;
+                    console.log("new best! ",data.score);
+                    console.log("from worker ",i)
+                    console.log(evaluate([...data.weights],true));
+                    
+                    opt.workers.forEach(w=>{
+                        w.postMessage(msg);
+                    })
+                }
+            })
+            this.workers.push(newWorker);
+
+        }
+    }
+}
+
+if(isMainThread){
+    let optimizer = new ThreadedOptimizer(evaluateAutoencoder,testnet.serialize().length,10);
+    
+} else {
+    console.log(parentPort)
+    
+    try {
+    let incoming = null;
+    let optimizer = new Optimizer(evaluateAutoencoder,testnet.serialize().length,(weights,score)=>{
+        
+        let msg = JSON.stringify({weights,score});
+        parentPort.postMessage(msg);
+        });
+    
+    parentPort.on("message",msg=>{
+        let data = JSON.parse(msg);
+        incoming = data;
+        //optimizer.currentBest = msg.weights;
+        //optimizer.currentBestScore = msg.score;
+    });
+    
+    
+    while(true){
+        await new Promise(resolve=>setTimeout(resolve,500));
+        optimizer.train(100);
+        if(incoming !=null){
+            optimizer.currentBestScore=incoming.score;
+            optimizer.currentBest=incoming.weights;
+            incoming=null;
+        }
+
+    }
+    } catch(e){
+        console.log(e)
+    }
+}
 
 
 
