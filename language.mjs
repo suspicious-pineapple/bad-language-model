@@ -290,6 +290,7 @@ class ThreadedOptimizer {
                 let data = JSON.parse(msg);
                 if(data.score < opt.globalBestScore){
                     opt.globalBest = data.weights;
+                    opt.globalBestScore = data.score
                     console.log("new best! ",data.score);
                     console.log("from worker ",i)
                     console.log(evaluate([...data.weights],true));
@@ -306,7 +307,7 @@ class ThreadedOptimizer {
 }
 
 if(isMainThread){
-    let optimizer = new ThreadedOptimizer(evaluateAutoencoder,testnet.serialize().length,10);
+    let optimizer = new ThreadedOptimizer(evaluateAutoencoder,testnet.serialize().length,9);
     
 } else {
     console.log(parentPort)
@@ -328,9 +329,10 @@ if(isMainThread){
     
     
     while(true){
-        await new Promise(resolve=>setTimeout(resolve,500));
-        optimizer.train(100);
-        if(incoming !=null){
+        await new Promise(resolve=>setTimeout(resolve,50));
+        console.log("pulse");
+        optimizer.train(10000);
+        if(incoming !=null && incoming.score<optimizer.currentBestScore){
             optimizer.currentBestScore=incoming.score;
             optimizer.currentBest=incoming.weights;
             incoming=null;
