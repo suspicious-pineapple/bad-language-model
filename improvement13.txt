@@ -1,0 +1,223 @@
+
+class NeuralNetwork {
+    constructor(shape){
+        this.shape = shape;
+        this.weights = [];
+        this.biases = [];
+        this.dtype = Float32Array;
+        this.values = new Array(shape.length);
+        this.values[0] = new this.dtype(shape[0]);
+        
+        const lastShape = shape[shape.length - 1];
+        this._tempOutput = new this.dtype(lastShape);
+        
+        for(let i = 1; i < shape.length; i++){
+            const prevShape = shape[i-1];
+            const currShape = shape[i];
+            this.weights[i] = new this.dtype(currShape * prevShape);
+            this.biases[i] = new this.dtype(currShape);
+            this.values[i] = new this.dtype(currShape);
+        }
+    }
+
+    runAll(input){
+        let current = input;
+        const shape = this.shape;
+        const weights = this.weights;
+        const biases = this.biases;
+        const tempOutput = this._tempOutput;
+        const nLayers = shape.length;
+        
+        for(let i = 1; i < nLayers; i++){
+            const shapeI = shape[i];
+            const shapePrev = shape[i-1];
+            const w = weights[i];
+            const b = biases[i];
+            
+            // Flatten loop for better JIT optimization
+            // We iterate through each neuron in the current layer
+            for (let j = 0; j < shapeI; j++) {
+                let sum = b[j];
+                // Inner loop: dot product of current input and weight row
+                // Weight row for neuron j starts at j * shapePrev
+                const wStart = j * shapePrev;
+                for (let k = 0; k < shapePrev; k++) {
+                    sum += w[wStart + k] * current[k];
+                }
+                
+                // Leaky ReLU
+                const leak = sum * 0.2;
+                tempOutput[j] = sum > leak ? sum : leak;
+            }
+            
+            // Copy tempOutput to current
+            // Using set is generally faster than manual loop in V8
+            current.set(tempOutput);
+        }
+        return current;
+    }
+
+    serialize(){
+        let weightsExport = [];
+        const shape = this.shape;
+        const weights = this.weights;
+        const biases = this.biases;
+        const nLayers = weights.length;
+        
+        for(let i = 1; i < nLayers; i++){
+            const currShape = shape[i];
+            const prevShape = shape[i-1];
+            const wFlat = weights[i];
+            const bFlat = biases[i];
+            
+            // Push biases
+            for(let j = 0; j < currShape; j++){
+                weightsExport.push(bFlat[j]);
+            }
+            
+            // Push weights
+            for(let j = 0; j < currShape; j++){
+                const rowOffset = j * prevShape;
+                for(let k = 0; k < prevShape; k++){
+                    weightsExport.push(wFlat[rowOffset + k]);
+                }
+            }
+        }
+        return weightsExport;
+    }
+
+    deserialize(weightsExport){
+        const shape = this.shape;
+        const weights = this.weights;
+        const biases = this.biases;
+        const nLayers = weights.length;
+        
+        for(let i = 1; i < nLayers; i++){
+            const currShape = shape[i];
+            const prevShape = shape[i-1];
+            const wFlat = weights[i];
+            const bFlat = biases[i];
+            
+            // Pop biases
+            for(let j = 0; j < currShape; j++){
+                bFlat[j] = weightsExport.shift();
+            }
+            
+            // Pop weights
+            for(let j = 0; j < currShape; j++){
+                const rowOffset = j * prevShape;
+                for(let k = 0; k < prevShape; k++){
+                    wFlat[rowOffset + k] = weightsExport.shift();
+                }
+            }
+        }
+        return weightsExport;
+    }
+}
+
+class Optimizer {
+    constructor(evaluate, size, hparamsGiven, improvementCallback = () => {}){
+        this.hparams = hparamsGiven;
+        this.size = size;
+        this.improvementCallback = improvementCallback;
+        this.evaluate = evaluate;
+        
+        this.currentBest = new Float64Array(size);
+        this.currentBest.fill(0);
+        this.currentBestLoss = 9999;
+        
+        this.trainIdx = new Int32Array(hparamsGiven.n_idx || 50);
+        this.direction = new Float64Array(hparamsGiven.n_idx || 50);
+        this.directionSign = 1;        
+        this.lastWasGood = false;
+        this.streak = 0;
+        this.iteration = 0;
+        this.lastReportedLoss = 99999;
+        
+        this._candidate = new Float64Array(size);
+        
+        this._nIdx = hparamsGiven.n_idx;
+        this._lr = hparamsGiven.lr;
+    }
+
+    step(){
+        this.iteration++;
+        
+        const candidate = this._candidate;
+        const currentBest = this.currentBest;
+        
+        // Manual set for performance
+        for(let i = 0; i < this.size; i++) {
+            candidate[i] = currentBest[i];
+        }
+        
+        if(!this.lastWasGood){
+            const nIdx = this._nIdx;
+            const lr = this._lr;
+            const size = this.size;
+            const trainIdx = this.trainIdx;
+            const direction = this.direction;
+            
+            for(let i = 0; i < nIdx; i++){
+                trainIdx[i] = Math.floor(Math.random() * size);
+                direction[i] = (Math.random() * 2 - 1) * lr;
+            }
+        }
+        
+        const nIdx = this._nIdx;
+        const trainIdx = this.trainIdx;
+        const direction = this.direction;
+        
+        if(this.lastWasGood){
+            const streak = this.streak;
+            const streakSq = streak * streak;
+            for(let i = 0; i < nIdx; i++){
+                const idx = trainIdx[i];
+                const dir = direction[i];
+                candidate[idx] += dir + dir * streakSq;
+            }
+        } else {
+            for(let i = 0; i < nIdx; i++){
+                const idx = trainIdx[i];
+                candidate[idx] += direction[i];
+            }
+        }
+        
+        let newLoss = this.evaluate(candidate, false);
+        
+        if(newLoss < this.currentBestLoss){
+            if(this.lastReportedLoss > newLoss){
+                this.improvementCallback(candidate, newLoss);
+                this.lastReportedLoss = newLoss;
+            }
+
+            // Manual set for performance
+            for(let i = 0; i < this.size; i++) {
+                currentBest[i] = candidate[i];
+            }
+            this.currentBestLoss = newLoss;
+            this.lastWasGood = true;
+            this.streak++;
+        } else {
+            this.lastWasGood = false;
+            this.streak = 0;
+        }
+    }
+
+    train(n){
+        if(n === 0){
+            while(true){
+                this.step();
+            }
+        }
+        for(let i = 0; i < n ; i++){
+            this.step();
+        }
+    }
+}
+
+let hparams = {
+    frequency:0.2,
+    lr:0.015,
+    n_idx:50,
+};

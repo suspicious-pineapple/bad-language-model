@@ -1,6 +1,5 @@
 
 
-import { resolve } from "node:dns";
 import {
 Worker, isMainThread,parentPort,workerData
 } from "node:worker_threads";
@@ -371,8 +370,8 @@ if(isMainThread){
         
 
         
-        if(incoming !=null && incoming.Loss<optimizer.currentBestLoss){
-            optimizer.currentBestLoss=incoming.Loss;
+        if(incoming !=null && incoming.loss<optimizer.currentBestLoss){
+            optimizer.currentBestLoss=incoming.loss;
             optimizer.currentBest=incoming.weights;
             if(incoming.hparams != null){
                 console.log("received hparams:",incoming.hparams)

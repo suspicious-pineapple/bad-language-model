@@ -1,0 +1,216 @@
+
+class NeuralNetwork {
+    constructor(shape){
+        this.shape = shape;
+        this.weights = [];
+        this.biases = [];
+        this.dtype = Float32Array;
+        this.values = new Array(shape.length);
+        this.values[0] = new this.dtype(shape[0]);
+        
+        const lastShape = shape[shape.length - 1];
+        this._tempOutput = new this.dtype(lastShape);
+        
+        for(let i = 1; i < shape.length; i++){
+            const prevShape = shape[i-1];
+            const currShape = shape[i];
+            this.weights[i] = new this.dtype(currShape * prevShape);
+            this.biases[i] = new this.dtype(currShape);
+            this.values[i] = new this.dtype(currShape);
+        }
+    }
+
+    runAll(input){
+        let current = input;
+        for(let i = 1; i < this.shape.length; i++){
+            current = this.runLayer(i, current);
+        }
+        return current;
+    }
+
+    runLayer(i, input){
+        const shapeI = this.shape[i];
+        const shapePrev = this.shape[i-1];
+        const w = this.weights[i];
+        const b = this.biases[i];
+        const out = this._tempOutput;
+        
+        // Optimized Matrix-Vector Multiplication
+        // Using a single loop with index calculation to reduce loop overhead
+        // and leveraging JIT optimizations for array access
+        const wLen = shapeI * shapePrev;
+        let wIdx = 0;
+        let k = 0;
+        
+        for (let j = 0; j < shapeI; j++) {
+            let sum = b[j];
+            const rowEnd = wIdx + shapePrev;
+            
+            // Inner loop unrolling manually for performance
+            // Assuming shapePrev is small enough or JIT handles it well
+            // Using a simple loop is often faster than manual unrolling due to JIT
+            while (wIdx < rowEnd) {
+                sum += w[wIdx] * input[k];
+                wIdx++;
+                k++;
+            }
+            
+            // Leaky ReLU: max(v, v*0.2)
+            const leak = sum * 0.2;
+            out[j] = sum > leak ? sum : leak;
+            
+            // Reset k for next row
+            k = 0;
+        }
+        
+        return new this.dtype(out);
+    }
+
+    serialize(){
+        let weightsExport = [];
+        for(let i = 1; i < this.weights.length; i++){
+            const currShape = this.shape[i];
+            const prevShape = this.shape[i-1];
+            const wFlat = this.weights[i];
+            const bFlat = this.biases[i];
+            
+            // Push biases
+            for(let j = 0; j < currShape; j++){
+                weightsExport.push(bFlat[j]);
+            }
+            
+            // Push weights row by row
+            for(let j = 0; j < currShape; j++){
+                const rowOffset = j * prevShape;
+                for(let k = 0; k < prevShape; k++){
+                    weightsExport.push(wFlat[rowOffset + k]);
+                }
+            }
+        }
+        return weightsExport;
+    }
+
+    deserialize(weightsExport){
+        for(let i = 1; i < this.weights.length; i++){
+            const currShape = this.shape[i];
+            const prevShape = this.shape[i-1];
+            const wFlat = this.weights[i];
+            const bFlat = this.biases[i];
+            
+            // Pop biases
+            for(let j = 0; j < currShape; j++){
+                bFlat[j] = weightsExport.shift();
+            }
+            
+            // Pop weights
+            for(let j = 0; j < currShape; j++){
+                const rowOffset = j * prevShape;
+                for(let k = 0; k < prevShape; k++){
+                    wFlat[rowOffset + k] = weightsExport.shift();
+                }
+            }
+        }
+        return weightsExport;
+    }
+}
+
+class Optimizer {
+    constructor(evaluate, size, hparamsGiven, improvementCallback = () => {}){
+        this.hparams = hparamsGiven;
+        this.size = size;
+        this.improvementCallback = improvementCallback;
+        this.evaluate = evaluate;
+        
+        this.currentBest = new Float64Array(size);
+        this.currentBest.fill(0);
+        this.currentBestLoss = 9999;
+        
+        this.trainIdx = new Int32Array(hparamsGiven.n_idx || 50);
+        this.direction = new Float64Array(hparamsGiven.n_idx || 50);
+        this.directionSign = 1;        
+        this.lastWasGood = false;
+        this.streak = 0;
+        this.iteration = 0;
+        this.lastReportedLoss = 99999;
+        
+        this._candidate = new Float64Array(size);
+        
+        // Cache hparams for faster access in tight loops
+        this._nIdx = hparamsGiven.n_idx;
+        this._lr = hparamsGiven.lr;
+    }
+
+    step(){
+        this.iteration++;
+        
+        // Copy current best to candidate
+        this._candidate.set(this.currentBest);
+        
+        if(!this.lastWasGood){
+            const nIdx = this._nIdx;
+            const lr = this._lr;
+            const size = this.size;
+            
+            // Re-generate indices and directions
+            for(let i = 0; i < nIdx; i++){
+                this.trainIdx[i] = Math.floor(Math.random() * size);
+                this.direction[i] = (Math.random() * 2 - 1) * lr;
+            }
+        }
+        
+        const nIdx = this._nIdx;
+        const candidate = this._candidate;
+        const trainIdx = this.trainIdx;
+        const direction = this.direction;
+        
+        // Apply updates
+        if(this.lastWasGood){
+            const streak = this.streak;
+            const streakSq = streak * streak;
+            for(let i = 0; i < nIdx; i++){
+                const idx = trainIdx[i];
+                const dir = direction[i];
+                candidate[idx] += dir + dir * streakSq;
+            }
+        } else {
+            for(let i = 0; i < nIdx; i++){
+                const idx = trainIdx[i];
+                candidate[idx] += direction[i];
+            }
+        }
+        
+        let newLoss = this.evaluate(candidate, false);
+        
+        if(newLoss < this.currentBestLoss){
+            if(this.lastReportedLoss > newLoss){
+                this.improvementCallback(candidate, newLoss);
+                this.lastReportedLoss = newLoss;
+            }
+
+            this.currentBest.set(candidate);
+            this.currentBestLoss = newLoss;
+            this.lastWasGood = true;
+            this.streak++;
+        } else {
+            this.lastWasGood = false;
+            this.streak = 0;
+        }
+    }
+
+    train(n){
+        if(n === 0){
+            while(true){
+                this.step();
+            }
+        }
+        for(let i = 0; i < n ; i++){
+            this.step();
+        }
+    }
+}
+
+let hparams = {
+    frequency:0.2,
+    lr:0.015,
+    n_idx:50,
+};
