@@ -7,7 +7,7 @@ async function runInIsolate(code){
     return new Promise(async (resolve, reject) => {
     setTimeout(() => {
         reject("Error: Script took too long to execute.");
-    }, 7000);
+    }, 12000);
     
     let scriptOutputs = [];
     
@@ -73,17 +73,27 @@ let currentBest = segments[0];
 let iteration = 0;
 let currentBestLoss = await test(currentBest);
 
-        
+
+let lastMessages = [];
 while(true){
     iteration++;
     
-    let history = [{role:"user",content:"here is a pure JS implementation of a neural network and its optimizer. optimize it for performance, using any performance trick you know. the output format of runLayer and runAll should unaffected. Especially focus on the hottest loops and ways to potentially speed them up. implement matrix math functions. consider that the evaluate function is quite expensive. output the improved javascript code after [BEGIN JAVASCRIPT], after this tag nothing but pure javascript code should follow, without additional explanations. end the code with [END JAVASCRIPT]. Make sure all the class inputs and outptus/function signatures stay compatible, so the hidden benchmarking code still works. Afterwards the code will run for 5 seconds before the final loss is measured and returned to you.\n\nhere is the code:\n\n"+currentBest}];
+    let history = [{role:"user",content:"here is a pure JS implementation of a neural network and its optimizer. Aggressively optimize it for performance, using any performance trick you know. the output format of runLayer and runAll should unaffected. consider that the evaluate function is quite expensive. output the improved javascript code after [BEGIN JAVASCRIPT], after this tag nothing but pure javascript code should follow, without additional explanations. end the code with [END JAVASCRIPT]. Make sure all the class inputs and outptus/function signatures stay compatible, so the hidden benchmarking code still works. Afterwards the code will run for 5 seconds before the final loss is measured and returned to you. Before the begin tag, shortly explain what you plan on changing.\n\nhere is the code:\n\n"+currentBest}];
+    if(Math.random()>0.6){
+        //history = [...history, ...lastMessages]
+        history = [...history, ...lastMessages, {role:"user",content:"[HPARAM TUNING PHASE] change the hyperparameters instead of the architecture now."}]
+        
+    }
     let think = false;
     if(Math.random()>0.9){
-        think=true;
+        //think=true;
     }
-    let improved = await chatInfer(history, {max_tokens:32000,template_vars:{enable_thinking:think}});
-    improved = improved.split("</think>").pop();
+    let improvedVariations = await chatInfer(history, {n:1,max_tokens:32000,template_vars:{enable_thinking:think}});
+    //for(let variation of improvedVariations){
+    let variation=improvedVariations;
+
+    let improved = variation.split("</think>").pop();
+    let improvedText = improved;
 
     improved = improved.split("[BEGIN JAVASCRIPT]").pop();
     improved = improved.split("[END JAVASCRIPT]").shift();
@@ -101,14 +111,30 @@ while(true){
         }
         console.log("baseline:",currentBestLoss,"proposed change:",modifiedLoss)
         if(modifiedLoss < currentBestLoss ){
+            lastMessages.push({role:"assistant",content:improvedText});
+            lastMessages.push({role:"user",content:"code executed! new loss: "+modifiedLoss});
+
+            if(lastMessages.length > 12){
+                lastMessages.shift();
+                lastMessages.shift();
+                lastMessages.shift();
+                lastMessages.shift();
+                lastMessages.shift();
+                lastMessages.shift();
+            }
+
             fs.writeFileSync("./improvement"+iteration+".txt",improved);
             currentBest=improved;
             currentBestLoss=modifiedLoss;
+        } else {
+            lastMessages.push({role:"assistant",content:improvedText});
+            lastMessages.push({role:"user",content:"code executed! new loss: "+modifiedLoss+"\nunfortunately, this is worse than before. try something else."});
+
         }
     } catch(e) {
         console.log(e);
     }
-
+    //}
 }
 
 

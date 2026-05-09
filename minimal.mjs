@@ -35,8 +35,10 @@ class NeuralNetwork {
                 for(let k = 0; k < this.weights[i][j].length;k++){
                     output[j] += this.weights[i][j][k]*input[k];
                 }
+                output[j]=output[j]<0?output[j]*0.1:output[j];
             }
-            output=output.map(v=>Math.max(v,v*0.2));
+            
+            //output=output.map(v=>Math.max(v,v*0.2));
             //output=output.map(v=>Math.tanh(v));
 
             return output;
@@ -111,7 +113,7 @@ class Optimizer {
         
         
 
-        if(true||!this.lastWasGood){
+        if(!this.lastWasGood){
             this.trainIdx = Array(this.hparams.n_idx);
             for(let i = 0; i<this.trainIdx.length;i++){
                 this.trainIdx[i] = Math.floor(Math.random()*this.size);
@@ -121,7 +123,7 @@ class Optimizer {
             
             
             for(let i = 0; i<this.trainIdx.length;i++){
-                this.direction[i]=(Math.random()*2-1)*this.hparams.lr;
+                this.direction[i]=(Math.random()*2-1)*this.hparams.lr*Math.cos(this.iteration*this.hparams.frequency);
             }
         }
         
@@ -169,10 +171,10 @@ class Optimizer {
 
 }
 
-let hparams = {
+let hparams = { //change these too!
     frequency:0.2,
-    lr:0.015,
-    n_idx:50,
+    lr:0.01,
+    n_idx:64,
 };
 
 
@@ -187,7 +189,7 @@ let optimizer = new Optimizer(evaluateAutoencoder,testnet.serialize().length,hpa
 
 let startTime = Date.now();
 
-while(Date.now() - startTime < 5000){
+while(Date.now() - startTime < 10000){
     optimizer.train(1000);
     
 }
