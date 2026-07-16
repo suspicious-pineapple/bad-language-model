@@ -1,13 +1,25 @@
 
 import ivm  from "isolated-vm";
 import fs from "fs";
-import { chatInfer } from "./inference.js";
+
+import {
+Worker, isMainThread,parentPort,workerData
+} from "node:worker_threads";
+let chatInfer = null;
+if(isMainThread){
+    //import { chatInfer } from "./inference.js";
+    chatInfer = (await import("./inference.js")).chatInfer;
+}
+
+
+
 async function runInIsolate(code){
     //return promise
     return new Promise(async (resolve, reject) => {
     setTimeout(() => {
-        reject("Error: Script took too long to execute.");
-    }, 12000);
+        resolve("999");
+        //reject("Error: Script took too long to execute.");
+    }, 20000);
     
     let scriptOutputs = [];
     
@@ -24,7 +36,6 @@ async function runInIsolate(code){
         console.log("VM Message: ", ...args);
     });
 
-    
     context.evalSync(`console.log = log;`);
     let err = false;
     try {
@@ -68,20 +79,49 @@ async function test(codesegment){
     return returnStr;
 }
 
+async function testMulti(codesegment){
+    let workers = [];
+    let promises = [];
+    for(let i = 0; i < 4;i++){
+        let worker = new Worker("./iterate.mjs");
+        let prommy = new Promise((resolve,reject)=>{
+            worker.on("message",msg=>{console.log(msg),resolve(msg);worker.terminate();});
+            worker.on("online",()=>worker.postMessage(JSON.stringify({data:codesegment})))
+        });
+        promises.push(prommy);
+    }
+    await Promise.all(promises);
+    let accum = 0;
+    for(let i = 0; i < promises.length;i++){
+        accum+=JSON.parse(await promises[i]).data;
+    }
+    accum = accum / promises.length;
+    return accum;
+}
 
-let currentBest = segments[0];
-let iteration = 0;
-let currentBestLoss = await test(currentBest);
+
 
 
 let lastMessages = [];
+if(isMainThread){
+
+
+let currentBest = segments[0];
+let iteration = 0;
+let currentBestLoss = await testMulti(currentBest);
+console.log("multi-test result: ",currentBestLoss);
+
 while(true){
+    try {
     iteration++;
     
-    let history = [{role:"user",content:"here is a pure JS implementation of a neural network and its optimizer. Aggressively optimize it for performance, using any performance trick you know. the output format of runLayer and runAll should unaffected. consider that the evaluate function is quite expensive. output the improved javascript code after [BEGIN JAVASCRIPT], after this tag nothing but pure javascript code should follow, without additional explanations. end the code with [END JAVASCRIPT]. Make sure all the class inputs and outptus/function signatures stay compatible, so the hidden benchmarking code still works. Afterwards the code will run for 5 seconds before the final loss is measured and returned to you. Before the begin tag, shortly explain what you plan on changing.\n\nhere is the code:\n\n"+currentBest}];
+    //let history = [{role:"user",content:"here is a pure JS implementation of a neural network and/or its optimizer. Optimizer and network are entirely separate; the optimizer only takes an arbitrary array of numbers (not neccessarily NN-specific) and an eval function. It should be noted that the goal of this whole project is backpropagation-free training using only forward passes and loss feedback. Optimize the architecture to more cleverly approximate gradients, leading to a lower loss at the same wall clock time. Implement a more aggressive initial exploratory phase. Experiment with only reassigning train_idx every few iterations. the output format of runLayer and runAll should unaffected. consider that the evaluate function is quite expensive. output the improved javascript code after [BEGIN JAVASCRIPT], after this tag nothing but pure javascript code should follow, without additional explanations. end the code with [END JAVASCRIPT]. Make sure all the class inputs and outptus/function signatures stay compatible, so the hidden benchmarking code still works. Afterwards the code will run for 10 seconds before the final loss is measured and returned to you. Before the begin tag, shortly explain what you plan on changing.\n\nhere is the code:\n\n"+currentBest}];
+    let history = [{role:"user",content:"here is a pure JS implementation of a neural network and/or its optimizer. Optimizer and network are entirely separate; the optimizer only takes an arbitrary array of numbers (not neccessarily NN-specific) and an eval function. It should be noted that the goal of this whole project is backpropagation-free training using only forward passes and loss feedback. Optimize the architecture to more cleverly approximate gradients, leading to a lower loss at the same wall clock time. Implement a more aggressive initial exploratory phase. Experiment with only reassigning train_idx every few iterations. the output format of runLayer and runAll should unaffected. consider that the evaluate function is quite expensive. output the improved javascript code after [BEGIN JAVASCRIPT], after this tag nothing but pure javascript code should follow, without additional explanations. end the code with [END JAVASCRIPT]. Make sure all the class inputs and outptus/function signatures stay compatible, so the hidden benchmarking code still works.\n\nhere is the code:\n\n"+currentBest}];
+    history = [...history, ...lastMessages]
     if(Math.random()>0.6){
-        //history = [...history, ...lastMessages]
-        history = [...history, ...lastMessages, {role:"user",content:"[HPARAM TUNING PHASE] change the hyperparameters instead of the architecture now."}]
+        if(Math.random()>0.8){
+            //history = [...history, ...lastMessages, {role:"user",content:"[HPARAM TUNING PHASE] change the hyperparameters instead of the architecture now."}]
+        }
         
     }
     let think = false;
@@ -100,7 +140,7 @@ while(true){
     
     try {
 
-        let modifiedLoss = await test(improved);
+        let modifiedLoss = await testMulti(improved);
         if(isNaN(modifiedLoss)){
             console.log("fuck, something NaN")
             continue;
@@ -114,8 +154,7 @@ while(true){
             lastMessages.push({role:"assistant",content:improvedText});
             lastMessages.push({role:"user",content:"code executed! new loss: "+modifiedLoss});
 
-            if(lastMessages.length > 12){
-                lastMessages.shift();
+            if(lastMessages.length > 8){
                 lastMessages.shift();
                 lastMessages.shift();
                 lastMessages.shift();
@@ -135,6 +174,23 @@ while(true){
         console.log(e);
     }
     //}
+    } catch (e){
+        console.log("this wouLdve been bad..",e);
+    }
 }
+} else {
+    parentPort.on("message",async msg=>{
+        let res = await test(JSON.parse(msg).data)
+        parentPort.postMessage(JSON.stringify({data:res}));
+    });
+}
+
+
+
+
+
+
+
+
 
 

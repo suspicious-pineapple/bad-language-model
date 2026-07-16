@@ -1,76 +1,4 @@
 
-class NeuralNetwork {
-    constructor(shape){
-        this.shape = shape;
-        this.weights = [];
-        this.biases = [];
-        this.values = [];
-        this.dtype = Float32Array;
-        this.values[0] = new this.dtype(shape[0]);
-        for(let i = 1; i < shape.length;i++){
-            this.weights[i] = []; //todo: fuse?
-            for(let j = 0; j < this.shape[i];j++){
-                this.weights[i][j] = new this.dtype(shape[i-1]);
-            }
-            this.biases[i] = new this.dtype(shape[i]);
-            this.values[i] = new this.dtype(shape[i]);
-        }
-
-    }
-    runAll(input){
-        let current = input;
-        for(let i = 1; i < this.shape.length;i++){
-            current = this.runLayer(i,current);
-        }
-        return current;
-    }
-
-    runLayer(i,input){
-        
-        //this.values[i].set(input);
-        //let output = new this.dtype(this.shape[i]);
-        let output = this.values[i].fill(0);
-        output.set(this.biases[i]);
-            for(let j = 0; j < this.weights[i].length;j++){
-                for(let k = 0; k < this.weights[i][j].length;k++){
-                    output[j] += this.weights[i][j][k]*input[k];
-                }
-                output[j]=output[j]<0?output[j]*0.1:output[j];
-            }
-            
-            //output=output.map(v=>Math.max(v,v*0.2));
-            //output=output.map(v=>Math.tanh(v));
-
-            return output;
-
-    }
-
-
-    serialize(){
-        let weightsExport = [];
-        for(let i = 1; i < this.weights.length;i++){
-            for(let j = 0; j < this.weights[i].length;j++){
-                weightsExport.push(this.biases[i][j]);
-                for(let k = 0; k < this.weights[i][j].length;k++){
-                    weightsExport.push(this.weights[i][j][k]);
-                }
-            }
-        }
-        return weightsExport;
-    }
-    deserialize(weightsExport){
-        for(let i = 1; i < this.weights.length;i++){
-            for(let j = 0; j < this.weights[i].length;j++){
-                this.biases[i][j] = weightsExport.shift();
-                for(let k = 0; k < this.weights[i][j].length;k++){
-                    this.weights[i][j][k] = weightsExport.shift();
-                }
-            }
-        }
-        return weightsExport;
-    }
-    
-}
 
 class Optimizer {
     constructor(evaluate,size,hparamsGiven,improvementCallback=()=>{}){
@@ -89,11 +17,7 @@ class Optimizer {
         this.currentBestLoss = 9999;
         
         this.trainIdx = [];
-        //for(let i=0;i<this.size;i++){
-
-        //        this.trainIdx[i]=i;
-            
-        //}
+        
         this.direction = [];
         this.directionSign = 1;
         this.lastWasGood = false;
@@ -129,7 +53,6 @@ class Optimizer {
         
         for(let i = 0; i < this.trainIdx.length;i++){
             
-            //candidate[trainIdx[i]]+= (Math.random()*2-1)*Math.cos(this.iteration*0.001*this.hparams.frequency)*this.hparams.lr;
             candidate[this.trainIdx[i]]+= this.direction[i];
             if(this.lastWasGood){
                 candidate[this.trainIdx[i]]+= this.direction[i]*this.streak*this.streak;
@@ -171,14 +94,87 @@ class Optimizer {
 
 }
 
-let hparams = { //change these too!
-    frequency:0.2,
-    lr:0.01,
-    n_idx:64,
+let hparams = { //these are the default hparams that get used when the optimizer is initialized
+    frequency: 0.1,
+    lr: 0.2,
+    n_idx: 16,
 };
 
-
 //EVAL SECTION
+
+
+class NeuralNetwork {
+    constructor(shape){
+        this.shape = shape;
+        this.weights = [];
+        this.biases = [];
+        this.values = [];
+        this.dtype = Float32Array;
+        this.values[0] = new this.dtype(shape[0]);
+        for(let i = 1; i < shape.length;i++){
+            this.weights[i] = []; //todo: fuse?
+            for(let j = 0; j < this.shape[i];j++){
+                this.weights[i][j] = new this.dtype(shape[i-1]);
+            }
+            this.biases[i] = new this.dtype(shape[i]);
+            this.values[i] = new this.dtype(shape[i]);
+        }
+
+    }
+    runAll(input){
+        let current = input;
+        for(let i = 1; i < this.shape.length;i++){
+            current = this.runLayer(i,current);
+        }
+        return current;
+    }
+
+    runLayer(i,input){
+        
+        //this.values[i].set(input);
+        //let output = new this.dtype(this.shape[i]);
+        let output = this.values[i].fill(0);
+        output.set(this.biases[i]);
+            for(let j = 0; j < this.weights[i].length;j++){
+                for(let k = 0; k < this.weights[i][j].length;k++){
+                    output[j] += this.weights[i][j][k]*input[k];
+                }
+                output[j]=output[j]<0?output[j]*0.1:output[j];
+            }
+            
+
+            return output;
+
+    }
+
+
+    serialize(){
+        let weightsExport = [];
+        for(let i = 1; i < this.weights.length;i++){
+            for(let j = 0; j < this.weights[i].length;j++){
+                weightsExport.push(this.biases[i][j]);
+                for(let k = 0; k < this.weights[i][j].length;k++){
+                    weightsExport.push(this.weights[i][j][k]);
+                }
+            }
+        }
+        return weightsExport;
+    }
+    deserialize(weightsExport){
+        for(let i = 1; i < this.weights.length;i++){
+            for(let j = 0; j < this.weights[i].length;j++){
+                this.biases[i][j] = weightsExport.shift();
+                for(let k = 0; k < this.weights[i][j].length;k++){
+                    this.weights[i][j][k] = weightsExport.shift();
+                }
+            }
+        }
+        return weightsExport;
+    }
+    
+}
+
+
 
 let vocabulary = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890+-*/,.! ".split("")
 
@@ -189,7 +185,7 @@ let optimizer = new Optimizer(evaluateAutoencoder,testnet.serialize().length,hpa
 
 let startTime = Date.now();
 
-while(Date.now() - startTime < 10000){
+while(Date.now() - startTime < 5000){
     optimizer.train(1000);
     
 }
